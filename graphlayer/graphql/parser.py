@@ -54,7 +54,7 @@ def document_text_to_query(document_text, graphql_schema, variables=None):
     variable_values = get_variable_values(graphql_schema.graphql_schema, variable_definitions, variables)
     if variable_values.errors:
         raise variable_values.errors[0]
-
+    
     fragments = to_dict(
         (fragment.name.value, fragment)
         for fragment in filter(
