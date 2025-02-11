@@ -18,9 +18,9 @@ setup(
     packages=['graphlayer', 'graphlayer.graphql'],
     keywords="graphql graph join ",
     extras_require={
-        "graphql": ["graphql-core==3.2.3"],
+        "graphql": ["graphql-core==3.2.6"],
     },
-    python_requires='>=3.7',
+    python_requires='>=3.9',
     license="BSD-2-Clause",
     classifiers=[
         'Development Status :: 5 - Production/Stable',
