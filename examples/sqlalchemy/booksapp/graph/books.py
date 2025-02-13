@@ -25,9 +25,9 @@ book_sql_resolver = gsql.sql_table_resolver(
     Book,
     database.Book,
     fields=lambda: {
-        Book.fields.author: gsql.join(
+        Book.fields.author: lambda graph, field_query: gsql.join(
             key=database.Book.author_id,
-            resolve=lambda graph, field_query, ids: graph.resolve(
+            resolve=lambda ids: graph.resolve(
                 authors.AuthorQuery.select_by_id(field_query.type_query, ids=ids),
             ),
         ),

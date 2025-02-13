@@ -1,4 +1,17 @@
+const webpack = require("webpack");
+
+
 module.exports = {
+  mode: "development",
+  optimization: {
+    splitChunks: false,
+    runtimeChunk: false,
+  },
+  plugins: [
+    new webpack.optimize.LimitChunkCountPlugin({
+      maxChunks: 1,
+    }),
+  ],
   module: {
     rules: [
       {
