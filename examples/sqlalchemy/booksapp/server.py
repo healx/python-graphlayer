@@ -41,4 +41,4 @@ def graphql():
     finally:
         session.close()
 
-    return flask.jsonify({"data": response})
+    return flask.jsonify({"data": response.data})
