@@ -38,14 +38,18 @@ Book = g.ObjectType("Book", fields=lambda: (
     g.field("author", type=Author),
 ))
 
+
 book_resolver = gsql.sql_table_resolver(
     Book,
     BookRecord,
     fields={
         Book.fields.title: gsql.expression(BookRecord.title),
-        Book.fields.author: g.single(gsql.sql_join({
-            BookRecord.author_id: AuthorRecord.id,
-        })),
+        Book.fields.author: lambda graph, field_query: gsql.join(
+            key=BookRecord.author_id,
+            resolve=lambda author_ids: graph.resolve(
+                gsql.select(field_query.type_query).by(AuthorRecord.id, author_ids),
+            ),
+        ),
     },
 )
 
