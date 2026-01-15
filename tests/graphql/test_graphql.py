@@ -240,3 +240,78 @@ def is_success(*, data):
 
 def has_str(matcher):
     return has_feature("str", str, matcher)
+
+
+def test_sorted_schema_still_resolves_data_correctly():
+    """Test that sorting the schema doesn't affect data resolution."""
+    Root = g.ObjectType("Root", fields=(
+        g.field("zebra", g.String),
+        g.field("apple", g.String),
+        g.field("mango", g.String),
+    ))
+
+    root_resolver = g.root_object_resolver(Root)
+
+    @root_resolver.field(Root.fields.zebra)
+    def root_resolve_zebra(graph, query, args):
+        return "zebra_value"
+
+    @root_resolver.field(Root.fields.apple)
+    def root_resolve_apple(graph, query, args):
+        return "apple_value"
+
+    @root_resolver.field(Root.fields.mango)
+    def root_resolve_mango(graph, query, args):
+        return "mango_value"
+
+    graph_definition = g.define_graph(resolvers=(root_resolver, ))
+    graph = graph_definition.create_graph({})
+
+    query = """
+        query {
+            zebra
+            apple
+            mango
+        }
+    """
+
+    execute = graphql.executor(query_type=Root, sort_schema=True)
+    result = execute(graph=graph, document_text=query)
+
+    # Data should be resolved correctly regardless of sorting
+    assert_that(result, is_success(data=equal_to({
+        "zebra": "zebra_value",
+        "apple": "apple_value",
+        "mango": "mango_value",
+    })))
+
+
+def test_sorted_schema_with_field_arguments():
+    """Test that sorted schema correctly handles fields with arguments."""
+    Root = g.ObjectType("Root", fields=(
+        g.field("greeting", g.String, params=(
+            g.param("name", g.String),
+        )),
+    ))
+
+    root_resolver = g.root_object_resolver(Root)
+
+    @root_resolver.field(Root.fields.greeting)
+    def root_resolve_greeting(graph, query, args):
+        return f"Hello, {args.name}!"
+
+    graph_definition = g.define_graph(resolvers=(root_resolver, ))
+    graph = graph_definition.create_graph({})
+
+    query = """
+        query {
+            greeting(name: "World")
+        }
+    """
+
+    execute = graphql.executor(query_type=Root, sort_schema=True)
+    result = execute(graph=graph, document_text=query)
+
+    assert_that(result, is_success(data=equal_to({
+        "greeting": "Hello, World!",
+    })))
