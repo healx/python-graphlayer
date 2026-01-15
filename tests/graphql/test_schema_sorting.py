@@ -182,8 +182,8 @@ def test_types_are_sorted_in_type_map_when_sort_schema_is_true():
         if not name.startswith("__")
     ]
 
-    # Check that custom types appear in sorted order
-    # Only String and Boolean are present because the fields use g.String type
+    # Check that non-introspection types (built-ins and custom object types)
+    # appear in sorted order: Boolean, Root, String, TypeA, TypeM, TypeZ
     assert_that(custom_type_names, contains_exactly(
         "Boolean", "Root", "String", "TypeA", "TypeM", "TypeZ"
     ))
