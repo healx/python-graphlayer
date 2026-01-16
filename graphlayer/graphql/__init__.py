@@ -6,16 +6,22 @@ from . import parser
 from .schema import create_graphql_schema
 
 
-def execute(document_text, *, graph, query_type, mutation_type=None, types=None, variables=None):
+def execute(document_text, *, graph, query_type, mutation_type=None, types=None, variables=None, sort_schema=False):
     return executor(
         query_type=query_type,
         mutation_type=mutation_type,
         types=types,
+        sort_schema=sort_schema,
     )(document_text, graph=graph, variables=variables)
 
 
-def executor(*, query_type, mutation_type=None, types=None):
-    graphql_schema = create_graphql_schema(query_type=query_type, mutation_type=mutation_type, types=types)
+def executor(*, query_type, mutation_type=None, types=None, sort_schema=False):
+    graphql_schema = create_graphql_schema(
+        query_type=query_type,
+        mutation_type=mutation_type,
+        types=types,
+        sort_schema=sort_schema,
+    )
 
     def execute(document_text, *, graph, variables=None):
         try:

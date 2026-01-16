@@ -1,4 +1,5 @@
 import graphql
+from graphql import lexicographic_sort_schema
 
 from .. import iterables, schema
 from .naming import snake_case_to_camel_case
@@ -12,7 +13,7 @@ class Schema(object):
         self.graphql_schema = graphql_schema
 
 
-def create_graphql_schema(query_type, mutation_type, types=None):
+def create_graphql_schema(query_type, mutation_type=None, types=None, sort_schema=False):
     if types is None:
         types = ()
 
@@ -118,15 +119,21 @@ def create_graphql_schema(query_type, mutation_type, types=None):
     for extra_type in types:
         to_graphql_type(extra_type)
 
+    graphql_schema = graphql.GraphQLSchema(
+        query=graphql_query_type,
+        mutation=graphql_mutation_type,
+        types=tuple(map(_to_base_type, graphql_types.values())),
+    )
+
+    if sort_schema:
+        # Apply lexicographic sorting for consistent field ordering in documentation
+        graphql_schema = lexicographic_sort_schema(graphql_schema)
+
     return Schema(
         query_type=query_type,
         mutation_type=mutation_type,
         types=types,
-        graphql_schema=graphql.GraphQLSchema(
-            query=graphql_query_type,
-            mutation=graphql_mutation_type,
-            types=tuple(map(_to_base_type, graphql_types.values())),
-        ),
+        graphql_schema=graphql_schema,
     )
 
 
