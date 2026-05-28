@@ -523,6 +523,484 @@ def test_can_limit_results_using_limit():
     ))
 
 
+def test_can_offset_results_using_offset():
+    Base = sqlalchemy.ext.declarative.declarative_base()
+
+    class BookRow(Base):
+        __tablename__ = "book"
+
+        c_id = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True)
+        c_title = sqlalchemy.Column(sqlalchemy.Unicode, nullable=False)
+
+    engine = sqlalchemy.create_engine("sqlite:///:memory:")
+
+    Base.metadata.create_all(engine)
+
+    session = sqlalchemy.orm.Session(engine)
+    session.add(BookRow(c_id=1, c_title="Leave it to Psmith"))
+    session.add(BookRow(c_id=2, c_title="Pericles, Prince of Tyre"))
+    session.add(BookRow(c_id=3, c_title="Captain Corelli's Mandolin"))
+
+    session.commit()
+
+    Book = g.ObjectType(
+        "Book",
+        fields=lambda: [
+            g.field("title", type=g.String),
+        ],
+    )
+
+    book_resolver = gsql.sql_table_resolver(
+        Book,
+        BookRow,
+        fields={
+            Book.fields.title: gsql.expression(BookRow.c_title),
+        },
+    )
+
+    resolvers = (book_resolver, )
+
+    query = gsql.select(g.ListType(Book)(
+        g.key("title", Book.fields.title()),
+    )).order_by(BookRow.c_title).offset(1)
+
+    graph_definition = g.define_graph(resolvers)
+    graph = graph_definition.create_graph({sqlalchemy.orm.Session: session})
+    result = graph.resolve(query)
+
+    assert_that(result, is_sequence(
+        has_attrs(title="Leave it to Psmith"),
+        has_attrs(title="Pericles, Prince of Tyre"),
+    ))
+
+
+def test_can_paginate_results_using_limit_and_offset():
+    Base = sqlalchemy.ext.declarative.declarative_base()
+
+    class BookRow(Base):
+        __tablename__ = "book"
+
+        c_id = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True)
+        c_title = sqlalchemy.Column(sqlalchemy.Unicode, nullable=False)
+
+    engine = sqlalchemy.create_engine("sqlite:///:memory:")
+
+    Base.metadata.create_all(engine)
+
+    session = sqlalchemy.orm.Session(engine)
+    session.add(BookRow(c_id=1, c_title="Book A"))
+    session.add(BookRow(c_id=2, c_title="Book B"))
+    session.add(BookRow(c_id=3, c_title="Book C"))
+    session.add(BookRow(c_id=4, c_title="Book D"))
+    session.add(BookRow(c_id=5, c_title="Book E"))
+
+    session.commit()
+
+    Book = g.ObjectType(
+        "Book",
+        fields=lambda: [
+            g.field("title", type=g.String),
+        ],
+    )
+
+    book_resolver = gsql.sql_table_resolver(
+        Book,
+        BookRow,
+        fields={
+            Book.fields.title: gsql.expression(BookRow.c_title),
+        },
+    )
+
+    resolvers = (book_resolver, )
+
+    graph_definition = g.define_graph(resolvers)
+    graph = graph_definition.create_graph({sqlalchemy.orm.Session: session})
+
+    # First page
+    query_page1 = gsql.select(g.ListType(Book)(
+        g.key("title", Book.fields.title()),
+    )).order_by(BookRow.c_title).limit(2).offset(0)
+
+    result_page1 = graph.resolve(query_page1)
+
+    assert_that(result_page1, is_sequence(
+        has_attrs(title="Book A"),
+        has_attrs(title="Book B"),
+    ))
+
+    # Second page
+    query_page2 = gsql.select(g.ListType(Book)(
+        g.key("title", Book.fields.title()),
+    )).order_by(BookRow.c_title).limit(2).offset(2)
+
+    result_page2 = graph.resolve(query_page2)
+
+    assert_that(result_page2, is_sequence(
+        has_attrs(title="Book C"),
+        has_attrs(title="Book D"),
+    ))
+
+    # Third page (partial)
+    query_page3 = gsql.select(g.ListType(Book)(
+        g.key("title", Book.fields.title()),
+    )).order_by(BookRow.c_title).limit(2).offset(4)
+
+    result_page3 = graph.resolve(query_page3)
+
+    assert_that(result_page3, is_sequence(
+        has_attrs(title="Book E"),
+    ))
+
+
+def test_offset_is_preserved_through_where_chaining():
+    Base = sqlalchemy.ext.declarative.declarative_base()
+
+    class BookRow(Base):
+        __tablename__ = "book"
+
+        c_id = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True)
+        c_title = sqlalchemy.Column(sqlalchemy.Unicode, nullable=False)
+        c_genre = sqlalchemy.Column(sqlalchemy.Unicode, nullable=False)
+
+    engine = sqlalchemy.create_engine("sqlite:///:memory:")
+
+    Base.metadata.create_all(engine)
+
+    session = sqlalchemy.orm.Session(engine)
+    session.add(BookRow(c_id=1, c_title="Comedy A", c_genre="comedy"))
+    session.add(BookRow(c_id=2, c_title="Comedy B", c_genre="comedy"))
+    session.add(BookRow(c_id=3, c_title="Comedy C", c_genre="comedy"))
+    session.add(BookRow(c_id=4, c_title="Drama A", c_genre="drama"))
+
+    session.commit()
+
+    Book = g.ObjectType(
+        "Book",
+        fields=lambda: [
+            g.field("title", type=g.String),
+        ],
+    )
+
+    book_resolver = gsql.sql_table_resolver(
+        Book,
+        BookRow,
+        fields={
+            Book.fields.title: gsql.expression(BookRow.c_title),
+        },
+    )
+
+    resolvers = (book_resolver, )
+
+    query = gsql.select(g.ListType(Book)(
+        g.key("title", Book.fields.title()),
+    )).order_by(BookRow.c_title).offset(1).where(BookRow.c_genre == "comedy")
+
+    graph_definition = g.define_graph(resolvers)
+    graph = graph_definition.create_graph({sqlalchemy.orm.Session: session})
+    result = graph.resolve(query)
+
+    assert_that(result, is_sequence(
+        has_attrs(title="Comedy B"),
+        has_attrs(title="Comedy C"),
+    ))
+
+
+def test_offset_beyond_available_rows_returns_empty_list():
+    Base = sqlalchemy.ext.declarative.declarative_base()
+
+    class BookRow(Base):
+        __tablename__ = "book"
+
+        c_id = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True)
+        c_title = sqlalchemy.Column(sqlalchemy.Unicode, nullable=False)
+
+    engine = sqlalchemy.create_engine("sqlite:///:memory:")
+
+    Base.metadata.create_all(engine)
+
+    session = sqlalchemy.orm.Session(engine)
+    session.add(BookRow(c_id=1, c_title="Book A"))
+    session.add(BookRow(c_id=2, c_title="Book B"))
+
+    session.commit()
+
+    Book = g.ObjectType(
+        "Book",
+        fields=lambda: [
+            g.field("title", type=g.String),
+        ],
+    )
+
+    book_resolver = gsql.sql_table_resolver(
+        Book,
+        BookRow,
+        fields={
+            Book.fields.title: gsql.expression(BookRow.c_title),
+        },
+    )
+
+    resolvers = (book_resolver, )
+
+    query = gsql.select(g.ListType(Book)(
+        g.key("title", Book.fields.title()),
+    )).offset(10)
+
+    graph_definition = g.define_graph(resolvers)
+    graph = graph_definition.create_graph({sqlalchemy.orm.Session: session})
+    result = graph.resolve(query)
+
+    assert_that(result, contains_exactly())
+
+
+def test_offset_zero_returns_all_results():
+    Base = sqlalchemy.ext.declarative.declarative_base()
+
+    class BookRow(Base):
+        __tablename__ = "book"
+
+        c_id = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True)
+        c_title = sqlalchemy.Column(sqlalchemy.Unicode, nullable=False)
+
+    engine = sqlalchemy.create_engine("sqlite:///:memory:")
+
+    Base.metadata.create_all(engine)
+
+    session = sqlalchemy.orm.Session(engine)
+    session.add(BookRow(c_id=1, c_title="Book A"))
+    session.add(BookRow(c_id=2, c_title="Book B"))
+
+    session.commit()
+
+    Book = g.ObjectType(
+        "Book",
+        fields=lambda: [
+            g.field("title", type=g.String),
+        ],
+    )
+
+    book_resolver = gsql.sql_table_resolver(
+        Book,
+        BookRow,
+        fields={
+            Book.fields.title: gsql.expression(BookRow.c_title),
+        },
+    )
+
+    resolvers = (book_resolver, )
+
+    query = gsql.select(g.ListType(Book)(
+        g.key("title", Book.fields.title()),
+    )).order_by(BookRow.c_title).offset(0)
+
+    graph_definition = g.define_graph(resolvers)
+    graph = graph_definition.create_graph({sqlalchemy.orm.Session: session})
+    result = graph.resolve(query)
+
+    assert_that(result, is_sequence(
+        has_attrs(title="Book A"),
+        has_attrs(title="Book B"),
+    ))
+
+
+def test_offset_works_with_group_by():
+    Base = sqlalchemy.ext.declarative.declarative_base()
+
+    class BookRow(Base):
+        __tablename__ = "book"
+
+        c_id = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True)
+        c_author = sqlalchemy.Column(sqlalchemy.Unicode, nullable=False)
+
+    engine = sqlalchemy.create_engine("sqlite:///:memory:")
+
+    Base.metadata.create_all(engine)
+
+    session = sqlalchemy.orm.Session(engine)
+    session.add(BookRow(c_id=1, c_author="Author A"))
+    session.add(BookRow(c_id=2, c_author="Author B"))
+    session.add(BookRow(c_id=3, c_author="Author A"))
+    session.add(BookRow(c_id=4, c_author="Author C"))
+    session.add(BookRow(c_id=5, c_author="Author B"))
+
+    session.commit()
+
+    Author = g.ObjectType(
+        "Author",
+        fields=lambda: [
+            g.field("name", type=g.String),
+        ],
+    )
+
+    author_resolver = gsql.sql_table_resolver(
+        Author,
+        BookRow,
+        fields={
+            Author.fields.name: gsql.expression(BookRow.c_author),
+        },
+    )
+
+    resolvers = (author_resolver, )
+
+    query = gsql.select(g.ListType(Author)(
+        g.key("name", Author.fields.name()),
+    )).group_by(BookRow.c_author).order_by(BookRow.c_author).offset(1).limit(2)
+
+    graph_definition = g.define_graph(resolvers)
+    graph = graph_definition.create_graph({sqlalchemy.orm.Session: session})
+    result = graph.resolve(query)
+
+    assert_that(result, is_sequence(
+        has_attrs(name="Author B"),
+        has_attrs(name="Author C"),
+    ))
+
+
+def test_offset_works_with_indexed_by_query():
+    Base = sqlalchemy.ext.declarative.declarative_base()
+
+    class BookRow(Base):
+        __tablename__ = "book"
+
+        c_id = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True)
+        c_title = sqlalchemy.Column(sqlalchemy.Unicode, nullable=False)
+
+    engine = sqlalchemy.create_engine("sqlite:///:memory:")
+
+    Base.metadata.create_all(engine)
+
+    session = sqlalchemy.orm.Session(engine)
+    session.add(BookRow(c_id=1, c_title="Book A"))
+    session.add(BookRow(c_id=2, c_title="Book B"))
+    session.add(BookRow(c_id=3, c_title="Book C"))
+    session.add(BookRow(c_id=4, c_title="Book D"))
+
+    session.commit()
+
+    Book = g.ObjectType(
+        "Book",
+        fields=lambda: [
+            g.field("title", type=g.String),
+        ],
+    )
+
+    book_resolver = gsql.sql_table_resolver(
+        Book,
+        BookRow,
+        fields={
+            Book.fields.title: gsql.expression(BookRow.c_title),
+        },
+    )
+
+    resolvers = (book_resolver, )
+
+    query = gsql.select(g.ListType(Book)(
+        g.key("title", Book.fields.title()),
+    )).order_by(BookRow.c_id).offset(1).limit(2).index_by(BookRow.c_id)
+
+    graph_definition = g.define_graph(resolvers)
+    graph = graph_definition.create_graph({sqlalchemy.orm.Session: session})
+    result = graph.resolve(query)
+
+    # index_by returns lists per key (multidict)
+    assert_that(result, is_mapping({
+        2: contains_exactly(has_attrs(title="Book B")),
+        3: contains_exactly(has_attrs(title="Book C")),
+    }))
+
+
+def test_offset_works_with_joined_relations():
+    Base = sqlalchemy.ext.declarative.declarative_base()
+
+    class AuthorRow(Base):
+        __tablename__ = "author"
+
+        c_id = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True)
+        c_name = sqlalchemy.Column(sqlalchemy.Unicode, nullable=False)
+
+    class BookRow(Base):
+        __tablename__ = "book"
+
+        c_id = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True)
+        c_title = sqlalchemy.Column(sqlalchemy.Unicode, nullable=False)
+        c_author_id = sqlalchemy.Column(sqlalchemy.Integer, sqlalchemy.ForeignKey(AuthorRow.c_id))
+
+    engine = sqlalchemy.create_engine("sqlite:///:memory:")
+
+    Base.metadata.create_all(engine)
+
+    session = sqlalchemy.orm.Session(engine)
+    session.add(AuthorRow(c_id=1, c_name="Author One"))
+    session.add(AuthorRow(c_id=2, c_name="Author Two"))
+    session.add(AuthorRow(c_id=3, c_name="Author Three"))
+    session.add(BookRow(c_title="Book A", c_author_id=1))
+    session.add(BookRow(c_title="Book B", c_author_id=2))
+    session.add(BookRow(c_title="Book C", c_author_id=3))
+    session.add(BookRow(c_title="Book D", c_author_id=1))
+
+    session.commit()
+
+    Book = g.ObjectType(
+        "Book",
+        fields=lambda: [
+            g.field("title", type=g.String),
+            g.field("author", type=Author),
+        ],
+    )
+
+    Author = g.ObjectType(
+        "Author",
+        fields=lambda: [
+            g.field("name", type=g.String),
+        ],
+    )
+
+    book_resolver = gsql.sql_table_resolver(
+        Book,
+        BookRow,
+        fields={
+            Book.fields.title: gsql.expression(BookRow.c_title),
+            Book.fields.author: lambda graph, field_query: gsql.join(
+                key=BookRow.c_author_id,
+                resolve=lambda author_ids: graph.resolve(
+                    gsql.select(field_query.type_query).by(AuthorRow.c_id, author_ids),
+                ),
+            ),
+        },
+    )
+
+    author_resolver = gsql.sql_table_resolver(
+        Author,
+        AuthorRow,
+        fields={
+            Author.fields.name: gsql.expression(AuthorRow.c_name),
+        },
+    )
+
+    resolvers = (book_resolver, author_resolver)
+
+    query = gsql.select(g.ListType(Book)(
+        g.key("title", Book.fields.title()),
+        g.key("author", Book.fields.author(
+            g.key("name", Author.fields.name()),
+        )),
+    )).order_by(BookRow.c_title).offset(1).limit(2)
+
+    graph_definition = g.define_graph(resolvers)
+    graph = graph_definition.create_graph({sqlalchemy.orm.Session: session})
+    result = graph.resolve(query)
+
+    assert_that(result, is_sequence(
+        has_attrs(
+            title="Book B",
+            author=has_attrs(name="Author Two"),
+        ),
+        has_attrs(
+            title="Book C",
+            author=has_attrs(name="Author Three"),
+        ),
+    ))
+
+
 def test_can_order_results_using_order_by():
     Base = sqlalchemy.ext.declarative.declarative_base()
 
